@@ -4,7 +4,8 @@
   "description": "A real-time, visual evolution simulator: populations evolve over generations via mutation and emergent natural selection, with tradeoff-driven genetics.",
   "type": "module",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node scripts/build-public.mjs",
+    "compile": "tsc",
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
     "serve": "python3 -m http.server 8000",

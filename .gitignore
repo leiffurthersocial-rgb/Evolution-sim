@@ -5,3 +5,7 @@ npm-debug.log*
 
 # Local exports
 *.csv
+
+# Vercel build artifact (assembled by scripts/build-public.mjs)
+public/
+.vercel/
