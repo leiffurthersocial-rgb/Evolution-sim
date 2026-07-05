@@ -1,0 +1,28 @@
+{
+  // TypeScript configuration.
+  //
+  // Source lives in src/ as .ts and compiles to dist/ as native ES modules that
+  // the browser loads directly (no bundler). Import specifiers are written with
+  // a ".js" extension so the emitted code resolves correctly at runtime; the
+  // "bundler" module resolution lets tsc map those back to the .ts sources.
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "rootDir": "src",
+    "outDir": "dist",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+
+    // Strictness — the point of adopting TypeScript.
+    "strict": true,
+    "noImplicitOverride": true,
+    "forceConsistentCasingInFileNames": true,
+
+    // Emit.
+    "sourceMap": true,
+    "declaration": false,
+    "removeComments": false,
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*.ts"]
+}

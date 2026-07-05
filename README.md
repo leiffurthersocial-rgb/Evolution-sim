@@ -8,17 +8,18 @@ beneficial trait carries a real biological cost, so there is **no universally
 optimal organism**: speedsters, tanks, frugal foragers, and raiders can all be
 viable in different niches, and the "best" strategy shifts as the world changes.
 
-Pure client-side, zero dependencies, zero build step. Open it in a browser and
-watch evolution happen.
-
-![traits evolve, tradeoffs bind](https://img.shields.io) <!-- placeholder -->
+Pure client-side and framework-free. Written in **TypeScript**, compiled to
+committed ES modules — so it still runs by just serving the folder (no install,
+no build step to *run*). Open it in a browser and watch evolution happen.
 
 ---
 
 ## Running it
 
-Because the app uses native ES modules, it must be served over HTTP (browsers
-block `import` from `file://`). Any static server works:
+The app is written in **TypeScript** (`src/*.ts`) and compiled to plain ES
+modules in `dist/`. The compiled output is committed, so **running it needs no
+install and no build** — just serve the folder over HTTP (browsers block
+`import` from `file://`):
 
 ```bash
 # from the project root
@@ -26,28 +27,50 @@ python3 -m http.server 8000
 # then open http://localhost:8000
 ```
 
-or
+### Developing (rebuilding from TypeScript)
+
+Editing the `.ts` sources requires a compile. TypeScript is the only dependency:
 
 ```bash
-npx serve .
+npm install        # installs typescript
+npm run build      # tsc: src/*.ts -> dist/*.js
+npm run dev        # tsc --watch: rebuild on save
+npm run typecheck  # type-check only, no emit
+npm start          # build, then serve on :8000
 ```
 
-No installation, bundler, or dependencies are required.
+The design intentionally keeps a **single, dependency-light toolchain** (`tsc`
+only — no bundler) so the "just serve it" property survives.
 
 ### Headless / batch mode
 
-The entire simulation core is DOM-free and runs under Node for experiments,
-tests, or data generation:
+The entire simulation core is DOM-free and runs under Node against the compiled
+output for experiments, tests, or data generation:
 
 ```js
-import { DEFAULT_CONFIG, cloneConfig } from './src/config.js';
-import { Simulation } from './src/simulation.js';
+import { DEFAULT_CONFIG, cloneConfig } from './dist/config.js';
+import { Simulation } from './dist/simulation.js';
 
 const sim = new Simulation(cloneConfig(DEFAULT_CONFIG));
 for (let i = 0; i < 10000; i++) sim.step();
 console.log(sim.stats.current);      // live summary
 console.log(sim.stats.toCSV());      // full time-series
 ```
+
+## Interacting with the world
+
+- **See the whole map at once:** the view auto-fits on load; hit **Fit** (or
+  press `f`) any time to frame the entire world regardless of its size.
+- **Zoom & pan:** scroll to zoom (anchored under the cursor), drag to pan, or
+  use the `+` / `−` buttons. The zoom percentage is shown in the view bar.
+- **Inspect an organism:** click any organism to open a live inspector showing
+  its id, lineage colour, generation, offspring, energy/age bars, every gene
+  (base *and* expressed value — a ▲ marks an active duplication/suppression),
+  and derived attributes (max speed, metabolism, vision, combat power,
+  maturation age, effective lifespan). The panel tracks the organism as it moves
+  and closes itself if it dies. Press `Esc` or ✕ to deselect.
+- **Keyboard:** `space` pause/resume, `n` single-step, `f` fit, `+`/`−` zoom,
+  `Esc` deselect.
 
 ---
 
@@ -109,26 +132,42 @@ never mutates simulation state. This is what lets the same core run on screen or
 headless.
 
 ```
-index.html            Static layout; loads src/main.js as a module
-styles/main.css       Dark, information-dense three-column UI
+index.html            Static layout; loads dist/main.js as a module
+styles/main.css       Dark, information-dense three-column UI + inspector
+tsconfig.json         tsc config: src/*.ts -> dist/*.js (ESNext, strict)
+package.json          Scripts (build/dev/typecheck/serve); typescript devDep
 
-src/
-  config.js           Single source of truth: gene table + all tunables (data)
-  rng.js              Seedable PRNG (mulberry32) — the deterministic entry point
-  utils.js            Vector math, clamping, SpatialGrid (O(neighbours) queries)
-  genome.js           Heritable gene container + temporary expression modifiers
-  mutation.js         Modular mutation engine (minor/major/dup/suppress/macro)
-  reproduction.js     Reproduction strategies (asexual now; sexual interface ready)
-  selection.js        Sexual-selection interfaces (PREPARED, inert)
-  environment.js      Terrain, food, obstacles, safe zones; spatial food index
-  organism.js         The agent: derived attributes (tradeoffs), behaviour, life
-  simulation.js       Orchestrates all systems; one deterministic step() per tick
-  statistics.js       Data collection, phenotype classification, CSV export
-  renderer.js         All world drawing (canvas); reads state, never writes it
-  charts.js           Minimal time-series charts for the stats panel
-  ui.js               All DOM wiring; the only module that touches the document
-  main.js             Bootstrap + animation loop (frames -> N sim steps)
+src/                  TypeScript sources
+  config.ts           Single source of truth: gene table + tunables + types
+  rng.ts              Seedable PRNG (mulberry32) — the deterministic entry point
+  utils.ts            Geometry, clamping, generic SpatialGrid<T> (fast queries)
+  genome.ts           Heritable gene container + temporary expression modifiers
+  mutation.ts         Modular mutation engine (minor/major/dup/suppress/macro)
+  reproduction.ts     Reproduction strategies (asexual now; sexual interface ready)
+  selection.ts        Sexual-selection interfaces (PREPARED, inert)
+  environment.ts      Terrain, food, obstacles, safe zones; spatial food index
+  organism.ts         The agent: derived attributes (tradeoffs), behaviour, life
+  simulation.ts       Orchestrates all systems; one deterministic step() per tick
+  statistics.ts       Data collection, phenotype classification, CSV export
+  camera.ts           Pan/zoom camera: world<->screen mapping, fit-to-view
+  input.ts            Canvas interaction: pick / pan / zoom / hover intents
+  renderer.ts         All world drawing (canvas) via the camera; never writes state
+  charts.ts           Minimal time-series charts for the stats panel
+  ui.ts               All DOM wiring: controls, inspector, view bar (only DOM module)
+  main.ts             Bootstrap + animation loop (frames -> N sim steps)
+
+dist/                 Compiled JS + source maps (committed so it runs w/o a build)
 ```
+
+### Why TypeScript
+
+The project moved from plain JS to TypeScript for the type safety that a
+system with many interacting modules benefits from: the gene set is a single
+`GeneKey` union derived from the config table (so a typo in a trait name is a
+compile error everywhere), the per-tick `TickContext`, mutation results,
+statistics summaries, and reproduction strategies are all typed contracts, and
+`strict` mode is on. `tsc` compiles to committed `dist/` output, so end users
+still just serve the folder — types are a *development* aid, not a runtime cost.
 
 ### Why OOP (not ECS)?
 
@@ -176,7 +215,7 @@ inherit the parent's base genes; each gene then mutates **independently**.
 Mutation magnitude is drawn from a Gaussian, so **small mutations are common and
 large ones rare**, and all values stay within configurable limits.
 
-Mutation categories (all live, all modular in `mutation.js`):
+Mutation categories (all live, all modular in `mutation.ts`):
 
 | Type | Effect |
 |------|--------|
@@ -212,8 +251,8 @@ The architecture deliberately prepares — but does not implement — the spec's
 planned systems, so they can be added without a rewrite:
 
 - **Sexual reproduction & sexual selection** (the headline future feature).
-  `reproduction.js` already programs the simulation against a
-  `ReproductionStrategy` interface, and `selection.js` defines a heritable,
+  `reproduction.ts` already programs the simulation against a
+  `ReproductionStrategy` interface, and `selection.ts` defines a heritable,
   co-evolving `PreferenceGenome` plus a `MateSelector` scoring model — the exact
   ingredients for runaway selection (peacock tails). Both are present as
   interfaces/stubs and inert.

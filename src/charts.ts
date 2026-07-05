@@ -1,28 +1,31 @@
 /**
- * charts.js
+ * charts.ts
  * -----------------------------------------------------------------------------
  * Minimal, dependency-free line/area charts drawn to small <canvas> elements.
- * Purpose-built for the statistics panel — not a general charting library, just
- * enough to plot the time-series that statistics.js collects.
- *
- * Kept separate from the world renderer because these draw *data over time*, not
- * *the world in space*; different concerns, different lifecycle (they only
- * refresh a few times per second, not every animation frame).
+ * Purpose-built for the statistics panel — just enough to plot the time-series
+ * that statistics.ts collects. Separate from the world renderer because these
+ * draw data over TIME, not the world in SPACE (different lifecycle and cadence).
  * -----------------------------------------------------------------------------
  */
 
 import { GENE_KEYS, GENES } from './config.js';
 import { norm } from './utils.js';
+import type { Statistics } from './statistics.js';
 
-/** A distinct, readable palette for multi-series charts (trait lines etc.). */
 const PALETTE = [
   '#e6584d', '#4d9de6', '#5fd97a', '#e6c34d', '#b96be6',
   '#4de6d0', '#e68a4d', '#8ae64d', '#e64d9d', '#4d6be6',
   '#d0e64d', '#4de68a',
 ];
 
-/** Draw an axis frame + faint gridlines on a canvas context. */
-function drawFrame(ctx, w, h) {
+interface PlotOpts {
+  min?: number;
+  max?: number;
+  fill?: string;
+  lineWidth?: number;
+}
+
+function drawFrame(ctx: CanvasRenderingContext2D, w: number, h: number): void {
   ctx.clearRect(0, 0, w, h);
   ctx.fillStyle = '#0d1117';
   ctx.fillRect(0, 0, w, h);
@@ -37,8 +40,14 @@ function drawFrame(ctx, w, h) {
   }
 }
 
-/** Plot a single series scaled to its own min/max. */
-function plotSeries(ctx, data, w, h, color, opts = {}) {
+function plotSeries(
+  ctx: CanvasRenderingContext2D,
+  data: number[],
+  w: number,
+  h: number,
+  color: string,
+  opts: PlotOpts = {}
+): void {
   const n = data.length;
   if (n < 2) return;
   let min = opts.min ?? Infinity;
@@ -73,35 +82,32 @@ function plotSeries(ctx, data, w, h, color, opts = {}) {
   }
 }
 
-/** Small text label in the top-left of a chart. */
-function label(ctx, text, color = 'rgba(255,255,255,0.75)') {
+function label(ctx: CanvasRenderingContext2D, text: string): void {
   ctx.font = '10px monospace';
-  ctx.fillStyle = color;
+  ctx.fillStyle = 'rgba(255,255,255,0.75)';
   ctx.textAlign = 'left';
   ctx.fillText(text, 6, 12);
 }
 
+export type ChartName = 'population' | 'traits' | 'diversity' | 'mutations' | 'lifehistory';
+
 export class Charts {
-  /**
-   * @param {object} canvases - map of chart name -> HTMLCanvasElement
-   * @param {Statistics} stats
-   */
-  constructor(canvases, stats) {
-    this.canvases = canvases;
-    this.stats = stats;
-    this._contexts = {};
+  private _contexts: Record<string, CanvasRenderingContext2D> = {};
+
+  constructor(private canvases: Record<ChartName, HTMLCanvasElement>, public stats: Statistics) {
     for (const key in canvases) {
-      this._contexts[key] = canvases[key].getContext('2d');
+      const c = canvases[key as ChartName];
+      const ctx = c.getContext('2d');
+      if (ctx) this._contexts[key] = ctx;
     }
   }
 
-  size(name) {
+  private size(name: ChartName): { w: number; h: number } {
     const c = this.canvases[name];
     return { w: c.width, h: c.height };
   }
 
-  /** Redraw every chart from the latest history. Cheap; call a few Hz. */
-  render() {
+  render(): void {
     this.renderPopulation();
     this.renderTraits();
     this.renderDiversity();
@@ -109,20 +115,16 @@ export class Charts {
     this.renderLifeHistory();
   }
 
-  renderPopulation() {
+  private renderPopulation(): void {
     const ctx = this._contexts.population;
     if (!ctx) return;
     const { w, h } = this.size('population');
     drawFrame(ctx, w, h);
-    plotSeries(ctx, this.stats.history.population, w, h, '#5fd97a', {
-      min: 0, fill: 'rgba(95,217,122,0.12)',
-    });
-    const cur = this.stats.current.population;
-    label(ctx, `Population: ${cur}`);
+    plotSeries(ctx, this.stats.history.population, w, h, '#5fd97a', { min: 0, fill: 'rgba(95,217,122,0.12)' });
+    label(ctx, `Population: ${this.stats.current.population}`);
   }
 
-  /** All trait means on one normalised (0..1) axis so shapes are comparable. */
-  renderTraits() {
+  private renderTraits(): void {
     const ctx = this._contexts.traits;
     if (!ctx) return;
     const { w, h } = this.size('traits');
@@ -135,33 +137,28 @@ export class Charts {
     label(ctx, 'Trait means (normalised 0–1)');
   }
 
-  renderDiversity() {
+  private renderDiversity(): void {
     const ctx = this._contexts.diversity;
     if (!ctx) return;
     const { w, h } = this.size('diversity');
     drawFrame(ctx, w, h);
-    plotSeries(ctx, this.stats.history.diversity, w, h, '#b96be6', {
-      min: 0, fill: 'rgba(185,107,230,0.12)',
-    });
-    const d = this.stats.current.diversity;
-    label(ctx, `Genetic diversity: ${d.toFixed(3)}`);
+    plotSeries(ctx, this.stats.history.diversity, w, h, '#b96be6', { min: 0, fill: 'rgba(185,107,230,0.12)' });
+    label(ctx, `Genetic diversity: ${this.stats.current.diversity.toFixed(3)}`);
   }
 
-  renderMutations() {
+  private renderMutations(): void {
     const ctx = this._contexts.mutations;
     if (!ctx) return;
     const { w, h } = this.size('mutations');
     drawFrame(ctx, w, h);
     const m = this.stats.history.mutations;
-    const types = ['minor', 'major', 'duplication', 'suppression', 'macro'];
-    types.forEach((t, i) => {
+    (['minor', 'major', 'duplication', 'suppression', 'macro'] as const).forEach((t, i) => {
       plotSeries(ctx, m[t], w, h, PALETTE[i % PALETTE.length], { min: 0, lineWidth: 1.2 });
     });
     label(ctx, 'Mutation frequency by type');
   }
 
-  /** Lifespan and offspring-count trends together. */
-  renderLifeHistory() {
+  private renderLifeHistory(): void {
     const ctx = this._contexts.lifehistory;
     if (!ctx) return;
     const { w, h } = this.size('lifehistory');

@@ -1,53 +1,56 @@
 /**
- * environment.js
+ * environment.ts
  * -----------------------------------------------------------------------------
- * The physical world the organisms live in:
- *   - a procedural terrain fertility map (drives where food clusters),
- *   - static obstacles (impassable rocks),
- *   - safe zones (refuges where aggression/combat is suppressed),
- *   - regenerating, limited food.
+ * The physical world: a procedural terrain fertility map (drives where food
+ * clusters), static obstacles, safe zones (refuges where combat is suppressed),
+ * and regenerating, limited food.
  *
- * The environment owns all non-organism entities and the rules for spawning,
- * regenerating, and querying them. It exposes cheap spatial queries via a
- * SpatialGrid so the simulation can ask "food near here" without scanning
- * everything. Because resources are finite and regeneration is capped,
- * competition emerges naturally when the population grows.
+ * Because resources are finite and regeneration is capped, competition emerges
+ * naturally as the population grows. Cheap spatial queries over food are served
+ * by a SpatialGrid so the simulation never scans everything.
  * -----------------------------------------------------------------------------
  */
 
-import { SpatialGrid, dist2, clamp } from './utils.js';
+import { SpatialGrid, dist2, clamp, Point } from './utils.js';
+import type { SimConfig } from './config.js';
+import type { RNG } from './rng.js';
 
-/** A single food item. Plain object for cache-friendliness at scale. */
-function makeFood(x, y, energy) {
+/** A single food item. */
+export interface Food extends Point {
+  x: number;
+  y: number;
+  energy: number;
+  eaten: boolean;
+}
+
+/** A circular region (obstacle or safe zone). */
+export interface Circle {
+  x: number;
+  y: number;
+  r: number;
+}
+
+function makeFood(x: number, y: number, energy: number): Food {
   return { x, y, energy, eaten: false };
 }
 
 export class Environment {
-  /**
-   * @param {object} config - live config
-   * @param {RNG} rng
-   */
-  constructor(config, rng) {
-    this.config = config;
-    this.rng = rng;
+  width: number;
+  height: number;
+  food: Food[] = [];
+  obstacles: Circle[] = [];
+  safeZones: Circle[] = [];
+  terrain: number[] = [];
+  terrainRes: number;
+  foodGrid: SpatialGrid<Food>;
+
+  private _foodDebt = 0;
+
+  constructor(private config: SimConfig, private rng: RNG) {
     this.width = config.world.width;
     this.height = config.world.height;
-
-    /** @type {Array} live food items */
-    this.food = [];
-    /** @type {Array<{x,y,r}>} impassable obstacles */
-    this.obstacles = [];
-    /** @type {Array<{x,y,r}>} refuges where combat is disabled */
-    this.safeZones = [];
-    /** Procedural fertility field: terrainCells×terrainCells values in [0,1]. */
-    this.terrain = [];
     this.terrainRes = config.world.terrainCells;
-
-    /** Spatial index over food, rebuilt each tick. */
-    this.foodGrid = new SpatialGrid(this.width, this.height, 40);
-
-    /** Fractional food accumulator so sub-1 regen rates still work. */
-    this._foodDebt = 0;
+    this.foodGrid = new SpatialGrid<Food>(this.width, this.height, 40);
 
     this.generateTerrain();
     this.generateObstacles();
@@ -55,15 +58,11 @@ export class Environment {
     this.seedInitialFood();
   }
 
-  // ---------------------------------------------------------------------------
-  //  Generation
-  // ---------------------------------------------------------------------------
+  // ---- Generation ---------------------------------------------------------
 
-  /** Build a smooth-ish fertility field via summed random blobs. */
-  generateTerrain() {
+  generateTerrain(): void {
     const res = this.terrainRes;
     this.terrain = new Array(res * res).fill(0.5);
-    // Add several Gaussian "fertility hills" and "barren dips".
     const blobs = 6;
     for (let b = 0; b < blobs; b++) {
       const cx = this.rng.range(0, res);
@@ -83,14 +82,14 @@ export class Environment {
   }
 
   /** Fertility in [0,1] at a world position. */
-  fertilityAt(x, y) {
+  fertilityAt(x: number, y: number): number {
     const res = this.terrainRes;
     const gx = clamp(Math.floor((x / this.width) * res), 0, res - 1);
     const gy = clamp(Math.floor((y / this.height) * res), 0, res - 1);
     return this.terrain[gy * res + gx];
   }
 
-  generateObstacles() {
+  generateObstacles(): void {
     this.obstacles = [];
     for (let i = 0; i < this.config.world.obstacleCount; i++) {
       this.obstacles.push({
@@ -101,7 +100,7 @@ export class Environment {
     }
   }
 
-  generateSafeZones() {
+  generateSafeZones(): void {
     this.safeZones = [];
     for (let i = 0; i < this.config.world.safeZoneCount; i++) {
       this.safeZones.push({
@@ -112,8 +111,7 @@ export class Environment {
     }
   }
 
-  /** Number of food items the world targets, scaled by area. */
-  targetFoodCount() {
+  targetFoodCount(): number {
     const area = this.width * this.height;
     return Math.min(
       this.config.food.maxItemsHardCap,
@@ -121,18 +119,15 @@ export class Environment {
     );
   }
 
-  seedInitialFood() {
+  seedInitialFood(): void {
     this.food = [];
     const target = this.targetFoodCount();
     for (let i = 0; i < target; i++) this.spawnFood();
   }
 
-  // ---------------------------------------------------------------------------
-  //  Runtime
-  // ---------------------------------------------------------------------------
+  // ---- Runtime ------------------------------------------------------------
 
-  /** True if (x, y) lies inside any obstacle (with optional body radius). */
-  isBlocked(x, y, bodyRadius = 0) {
+  isBlocked(x: number, y: number, bodyRadius = 0): boolean {
     for (const o of this.obstacles) {
       const rr = o.r + bodyRadius;
       if (dist2(x, y, o.x, o.y) < rr * rr) return true;
@@ -140,16 +135,14 @@ export class Environment {
     return false;
   }
 
-  /** True if (x, y) is inside any safe zone. */
-  inSafeZone(x, y) {
+  inSafeZone(x: number, y: number): boolean {
     for (const z of this.safeZones) {
       if (dist2(x, y, z.x, z.y) < z.r * z.r) return true;
     }
     return false;
   }
 
-  /** Find an unobstructed point near (x, y) for spawning offspring. */
-  nearbyOpenPoint(x, y, bodyRadius = 4) {
+  nearbyOpenPoint(x: number, y: number, bodyRadius = 4): Point {
     for (let attempt = 0; attempt < 12; attempt++) {
       const a = this.rng.range(0, Math.PI * 2);
       const d = this.rng.range(6, 26);
@@ -160,12 +153,11 @@ export class Environment {
     return { x: clamp(x, 0, this.width), y: clamp(y, 0, this.height) };
   }
 
-  /** Spawn a single food item, biased toward fertile terrain if configured. */
-  spawnFood() {
+  spawnFood(): void {
     if (this.food.length >= this.config.food.maxItemsHardCap) return;
-    let x, y;
+    let x = 0;
+    let y = 0;
     if (this.config.food.clusterOnFertile) {
-      // Rejection-sample toward fertile ground: accept with prob = fertility.
       let placed = false;
       for (let attempt = 0; attempt < 8 && !placed; attempt++) {
         x = this.rng.range(0, this.width);
@@ -176,16 +168,12 @@ export class Environment {
       x = this.rng.range(0, this.width);
       y = this.rng.range(0, this.height);
     }
-    if (this.isBlocked(x, y)) return; // no food inside rocks
+    if (this.isBlocked(x, y)) return;
     this.food.push(makeFood(x, y, this.config.food.energyPerItem));
   }
 
-  /**
-   * Regenerate food up to the (finite) target. The number spawned per tick is
-   * capped by `regenPerTick`, so a crashed food supply recovers gradually and
-   * organisms genuinely compete during the shortfall.
-   */
-  regenerate() {
+  /** Regenerate food up to the (finite) target, capped per tick. */
+  regenerate(): void {
     const target = this.targetFoodCount();
     if (this.food.length >= target) return;
     this._foodDebt += this.config.food.regenPerTick;
@@ -194,23 +182,20 @@ export class Environment {
     while (toSpawn-- > 0 && this.food.length < target) this.spawnFood();
   }
 
-  /** Rebuild the food spatial index. Call once per tick before organism updates. */
-  rebuildIndex() {
+  rebuildIndex(): void {
     this.foodGrid.clear();
     for (const f of this.food) if (!f.eaten) this.foodGrid.insert(f);
   }
 
-  /** Remove eaten food. Call once per tick after organism updates. */
-  cullEaten() {
+  cullEaten(): void {
     if (this.food.some((f) => f.eaten)) {
       this.food = this.food.filter((f) => !f.eaten);
     }
   }
 
-  /** Nearest un-eaten food within `radius` of (x, y), or null. */
-  nearestFood(x, y, radius, scratch = []) {
+  nearestFood(x: number, y: number, radius: number, scratch: Food[] = []): Food | null {
     const candidates = this.foodGrid.query(x, y, radius, scratch);
-    let best = null;
+    let best: Food | null = null;
     let bestD2 = radius * radius;
     for (let i = 0; i < candidates.length; i++) {
       const f = candidates[i];
@@ -224,12 +209,11 @@ export class Environment {
     return best;
   }
 
-  /** Re-seed the whole environment (used on world resize / full reset). */
-  reset() {
+  reset(): void {
     this.width = this.config.world.width;
     this.height = this.config.world.height;
     this.terrainRes = this.config.world.terrainCells;
-    this.foodGrid = new SpatialGrid(this.width, this.height, 40);
+    this.foodGrid = new SpatialGrid<Food>(this.width, this.height, 40);
     this._foodDebt = 0;
     this.generateTerrain();
     this.generateObstacles();

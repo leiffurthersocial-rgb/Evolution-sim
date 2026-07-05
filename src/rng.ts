@@ -1,35 +1,33 @@
 /**
- * rng.js
+ * rng.ts
  * -----------------------------------------------------------------------------
  * Deterministic pseudo-random number generation.
  *
  * The whole simulation draws randomness from a single seeded generator so that
  * a given seed + a given sequence of user inputs reproduces a run *exactly*.
- * Never call Math.random() anywhere else in the codebase — always go through an
- * instance of RNG. That discipline is what makes the "deterministic mode"
- * requirement actually hold.
+ * Never call Math.random() anywhere else — always go through an RNG instance.
  *
  * Algorithm: mulberry32 — a tiny, fast, well-distributed 32-bit generator.
- * Good enough for a simulation; not for cryptography.
  * -----------------------------------------------------------------------------
  */
 
 export class RNG {
-  /** @param {number} seed - integer seed. */
+  private _state = 1;
+  private _initialSeed = 1;
+
   constructor(seed = 1) {
     this.seed(seed);
   }
 
   /** (Re)seed the generator, resetting its internal state. */
-  seed(seed) {
-    // Force to a 32-bit unsigned integer.
+  seed(seed: number): this {
     this._state = (seed >>> 0) || 1;
     this._initialSeed = this._state;
     return this;
   }
 
   /** Uniform float in [0, 1). */
-  next() {
+  next(): number {
     let t = (this._state += 0x6d2b79f5);
     t = Math.imul(t ^ (t >>> 15), t | 1);
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
@@ -37,32 +35,30 @@ export class RNG {
   }
 
   /** Uniform float in [min, max). */
-  range(min, max) {
+  range(min: number, max: number): number {
     return min + this.next() * (max - min);
   }
 
   /** Uniform integer in [min, max] inclusive. */
-  int(min, max) {
+  int(min: number, max: number): number {
     return Math.floor(this.range(min, max + 1));
   }
 
-  /** Returns true with probability p. */
-  chance(p) {
+  /** True with probability p. */
+  chance(p: number): boolean {
     return this.next() < p;
   }
 
   /** Random element of an array (undefined if empty). */
-  pick(arr) {
+  pick<T>(arr: T[]): T | undefined {
     return arr.length ? arr[this.int(0, arr.length - 1)] : undefined;
   }
 
   /**
-   * Standard normal (mean 0, std 1) via the Box–Muller transform.
-   * Used heavily by the mutation system so that small mutations are common and
-   * large ones rare (a Gaussian tail).
+   * Standard normal via Box–Muller. Used by the mutation system so small
+   * mutations are common and large ones rare (a Gaussian tail).
    */
-  gaussian(mean = 0, std = 1) {
-    // Guard against log(0).
+  gaussian(mean = 0, std = 1): number {
     let u1 = 0;
     while (u1 === 0) u1 = this.next();
     const u2 = this.next();

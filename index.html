@@ -12,27 +12,28 @@
   <!--
     index.html
     ---------------------------------------------------------------------------
-    The static layout only. All dynamic content (sliders, stat readouts, event
-    log, chart canvases) is populated by the ES-module code in /src. The app is
-    pure client-side: open this file (via a local server) and it runs.
+    Static layout only. All dynamic content (sliders, stats, event log, inspector,
+    charts) is populated by the compiled ES modules in /dist (built from /src via
+    `npm run build`). The compiled output is committed, so the app also runs by
+    simply serving this folder — no install or build step required to RUN it.
     ---------------------------------------------------------------------------
   -->
   <header id="toolbar">
     <h1>🧬 Evolution Simulator</h1>
     <div class="toolbar-controls">
       <button id="btn-playpause" class="primary">⏸ Pause</button>
-      <button id="btn-step">⏭ Step</button>
+      <button id="btn-step" title="Advance one tick (n)">⏭ Step</button>
       <label class="speed-control">
         Speed
         <input type="range" id="speed" min="1" max="20" step="1" value="1" />
         <span id="speed-value">1×</span>
       </label>
-      <button id="btn-reset">🔄 Reset</button>
+      <button id="btn-reset" title="Restart from the current seed">🔄 Reset</button>
       <label class="seed-control">
         Seed
         <input type="number" id="seed-input" value="1337" />
       </label>
-      <button id="btn-export">⬇ Export CSV</button>
+      <button id="btn-export" title="Download statistics as CSV">⬇ Export CSV</button>
     </div>
   </header>
 
@@ -48,6 +49,45 @@
     <!-- CENTER: the world -->
     <section id="world-section">
       <canvas id="world"></canvas>
+
+      <!-- Floating view controls: fit-the-whole-map + zoom. -->
+      <div id="view-controls">
+        <button id="btn-fit" title="Fit whole map (f)">⤢ Fit</button>
+        <button id="btn-zoom-out" title="Zoom out (-)">−</button>
+        <span id="zoom-readout">100%</span>
+        <button id="btn-zoom-in" title="Zoom in (+)">+</button>
+      </div>
+
+      <div id="view-hint">Drag to pan · scroll to zoom · click an organism to inspect</div>
+
+      <!-- Floating entity inspector (hidden until an organism is clicked). -->
+      <div id="inspector" class="hidden">
+        <div id="inspector-header">
+          <span id="inspector-swatch"></span>
+          <div class="inspector-titles">
+            <div id="inspector-title">Organism</div>
+            <div id="inspector-sub"></div>
+          </div>
+          <button id="inspector-close" title="Close (Esc)">✕</button>
+        </div>
+
+        <div class="inspector-vitals">
+          <div class="vital">
+            <div class="vlabel"><span>Energy</span><span id="insp-energy-val"></span></div>
+            <div class="vital-track"><div id="insp-energy-fill" class="vital-fill energy"></div></div>
+          </div>
+          <div class="vital">
+            <div class="vlabel"><span>Age</span><span id="insp-age-val"></span></div>
+            <div class="vital-track"><div id="insp-age-fill" class="vital-fill age"></div></div>
+          </div>
+        </div>
+
+        <div class="inspector-section-title">Genes</div>
+        <div id="inspector-genes"></div>
+
+        <div class="inspector-section-title">Derived attributes</div>
+        <div id="inspector-derived"></div>
+      </div>
     </section>
 
     <!-- RIGHT: live stats + charts + events -->
@@ -72,7 +112,7 @@
     </aside>
   </main>
 
-  <!-- Entry point. type=module so imports work natively, no bundler needed. -->
-  <script type="module" src="src/main.js"></script>
+  <!-- Entry point: compiled ES module. type=module so imports work natively. -->
+  <script type="module" src="dist/main.js"></script>
 </body>
 </html>
