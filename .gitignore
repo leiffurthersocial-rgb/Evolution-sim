@@ -1,0 +1,7 @@
+# Node / tooling (the app itself has no dependencies)
+node_modules/
+npm-debug.log*
+.DS_Store
+
+# Local exports
+*.csv

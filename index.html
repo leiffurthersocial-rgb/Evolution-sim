@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Evolution Simulator</title>
+  <!-- Inline emoji favicon (avoids a 404 and keeps the app fully self-contained). -->
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧬</text></svg>" />
+  <link rel="stylesheet" href="styles/main.css" />
+</head>
+<body>
+  <!--
+    index.html
+    ---------------------------------------------------------------------------
+    The static layout only. All dynamic content (sliders, stat readouts, event
+    log, chart canvases) is populated by the ES-module code in /src. The app is
+    pure client-side: open this file (via a local server) and it runs.
+    ---------------------------------------------------------------------------
+  -->
+  <header id="toolbar">
+    <h1>🧬 Evolution Simulator</h1>
+    <div class="toolbar-controls">
+      <button id="btn-playpause" class="primary">⏸ Pause</button>
+      <button id="btn-step">⏭ Step</button>
+      <label class="speed-control">
+        Speed
+        <input type="range" id="speed" min="1" max="20" step="1" value="1" />
+        <span id="speed-value">1×</span>
+      </label>
+      <button id="btn-reset">🔄 Reset</button>
+      <label class="seed-control">
+        Seed
+        <input type="number" id="seed-input" value="1337" />
+      </label>
+      <button id="btn-export">⬇ Export CSV</button>
+    </div>
+  </header>
+
+  <main id="layout">
+    <!-- LEFT: runtime controls -->
+    <aside id="controls-panel" class="panel">
+      <h2>Controls</h2>
+      <div id="controls"></div>
+      <h2>Overlays</h2>
+      <div id="overlays"></div>
+    </aside>
+
+    <!-- CENTER: the world -->
+    <section id="world-section">
+      <canvas id="world"></canvas>
+    </section>
+
+    <!-- RIGHT: live stats + charts + events -->
+    <aside id="stats-panel" class="panel">
+      <h2>Live Statistics</h2>
+      <div id="readout"></div>
+
+      <h2>Trait Averages</h2>
+      <div id="trait-readout"></div>
+
+      <h2>Graphs</h2>
+      <div class="charts">
+        <canvas class="chart" id="chart-population" width="300" height="90"></canvas>
+        <canvas class="chart" id="chart-traits" width="300" height="90"></canvas>
+        <canvas class="chart" id="chart-diversity" width="300" height="90"></canvas>
+        <canvas class="chart" id="chart-mutations" width="300" height="90"></canvas>
+        <canvas class="chart" id="chart-lifehistory" width="300" height="90"></canvas>
+      </div>
+
+      <h2>Event Log</h2>
+      <ul id="event-log"></ul>
+    </aside>
+  </main>
+
+  <!-- Entry point. type=module so imports work natively, no bundler needed. -->
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
