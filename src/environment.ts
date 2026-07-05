@@ -62,6 +62,11 @@ export class Environment {
 
   generateTerrain(): void {
     const res = this.terrainRes;
+    // Fertile-soil variation disabled: a uniform field (no clustering, no heatmap).
+    if (!this.config.world.terrainEnabled) {
+      this.terrain = new Array(res * res).fill(1);
+      return;
+    }
     this.terrain = new Array(res * res).fill(0.5);
     const blobs = 6;
     for (let b = 0; b < blobs; b++) {

@@ -17,6 +17,7 @@
  */
 import { GENES, GENE_KEYS } from './config.js';
 import { clamp } from './utils.js';
+import { PREFERENCE_KEYS } from './selection.js';
 /**
  * For each gene, which direction is "cheaper/more productive" in a vacuum.
  * Selection frequently overrides this — that is the point.
@@ -34,7 +35,18 @@ const NAIVE_BENEFIT_DIRECTION = {
     camouflage: +1,
     aggression: +1,
     intelligence: +1,
+    ornament: -1, // cheaper to not display (only sexual selection favours it)
 };
+/**
+ * Genes that participate in the "fair" trait BUDGET. These are the offensive/
+ * capability traits; regulatory-strategy genes (reproductionThreshold) are left
+ * out. When fair mode is on, the sum of these genes' normalised values is
+ * conserved across inheritance, so a child that gains in one must lose in others.
+ */
+const BUDGET_KEYS = [
+    'strength', 'speed', 'size', 'vision', 'energyEfficiency', 'maxEnergy',
+    'lifespan', 'fertility', 'camouflage', 'aggression', 'intelligence', 'ornament',
+];
 export function emptyMutationTally() {
     return { minor: 0, major: 0, duplication: 0, suppression: 0, macro: 0 };
 }
@@ -88,7 +100,54 @@ export class MutationEngine {
             else
                 tally.minor++;
         }
+        // "Fair" mode: conserve the trait budget relative to the PARENT, so the
+        // child can redistribute traits but never exceed the parent's total. Over
+        // generations this keeps every lineage on a fixed "points" budget — no
+        // individual is ever maxed in everything.
+        if (m.fairMode)
+            this._conserveBudget(parentGenes, genes);
         return { genes, modifiers, tally };
+    }
+    /**
+     * Rescale the BUDGET_KEYS genes of `out` so their summed normalised value
+     * matches that of `reference`. Uses a few clamped scaling passes, which
+     * converge quickly and keep every gene inside its legal range.
+     */
+    _conserveBudget(reference, out) {
+        const sumNorm = (genes) => {
+            let s = 0;
+            for (const k of BUDGET_KEYS) {
+                const g = GENES[k];
+                s += (genes[k] - g.min) / (g.max - g.min);
+            }
+            return s;
+        };
+        const target = sumNorm(reference);
+        for (let pass = 0; pass < 4; pass++) {
+            const current = sumNorm(out);
+            if (current <= 1e-6 || Math.abs(current - target) < 1e-4)
+                break;
+            const factor = target / current;
+            for (const k of BUDGET_KEYS) {
+                const g = GENES[k];
+                const n = clamp(((out[k] - g.min) / (g.max - g.min)) * factor, 0, 1);
+                out[k] = g.min + n * (g.max - g.min);
+            }
+        }
+    }
+    /**
+     * Mutate a heritable mate-preference vector (used in both reproduction modes
+     * so preferences drift and can co-evolve with the traits they select for).
+     */
+    mutatePreferences(parent) {
+        const s = this.config.sexual;
+        const child = parent.clone();
+        for (const key of PREFERENCE_KEYS) {
+            if (this.rng.chance(s.preferenceMutationRate)) {
+                child.weights[key] = clamp(child.weights[key] + this.rng.gaussian(0, s.preferenceMutationMag), -1, 1);
+            }
+        }
+        return child;
     }
     /** Bias only the SIGN of a delta per beneficial/harmful/neutral probabilities. */
     _applyDirectionalBias(key, delta) {

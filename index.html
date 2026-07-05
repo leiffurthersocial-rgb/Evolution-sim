@@ -40,6 +40,10 @@
   <main id="layout">
     <!-- LEFT: runtime controls -->
     <aside id="controls-panel" class="panel">
+      <h2>Evolution</h2>
+      <div id="controls-evolution"></div>
+      <h2>Population Tools</h2>
+      <div id="controls-population"></div>
       <h2>Controls</h2>
       <div id="controls"></div>
       <h2>Overlays</h2>
@@ -82,11 +86,18 @@
           </div>
         </div>
 
-        <div class="inspector-section-title">Genes</div>
+        <div id="inspector-actions"></div>
+
+        <div class="inspector-section-title">Genes <span class="hint-small">(drag to edit this individual)</span></div>
         <div id="inspector-genes"></div>
 
         <div class="inspector-section-title">Derived attributes</div>
         <div id="inspector-derived"></div>
+
+        <div id="inspector-pref-section" class="hidden">
+          <div class="inspector-section-title">Mate preferences</div>
+          <div id="inspector-prefs"></div>
+        </div>
       </div>
     </section>
 

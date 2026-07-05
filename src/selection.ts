@@ -1,38 +1,49 @@
 /**
  * selection.ts
  * -----------------------------------------------------------------------------
- * Sexual-selection interfaces — PREPARED, NOT ACTIVE.
+ * Sexual selection — now ACTIVE.
  *
- * Sexual selection is the headline planned future feature. Per the spec we do
- * NOT implement it yet, but we DO define the interfaces now so that when it is
- * switched on, mating preferences can drive evolution (including runaway
- * feedback loops like the peacock's tail) without reworking the architecture.
+ * Each organism carries a heritable, mutable PreferenceGenome: a vector of
+ * weights describing what it finds attractive in a mate. Because preferences are
+ * inherited and co-evolve with the traits they select for, a costly-but-sexy
+ * trait (the `ornament` gene — a peacock's tail) can spread through the
+ * population even while it hurts survival. That feedback loop is runaway sexual
+ * selection, and it is what the MateSelector below makes possible.
  *
- * Key idea captured here:
- *   - Each organism will carry a heritable, mutable `preferences` vector.
- *   - Because preferences co-evolve with the traits they select for, costly-but-
- *     sexy traits can spread even while hurting survival (runaway selection).
- *   - A MateSelector scores candidates by preference match.
- *
- * All inert until a SexualReproduction strategy (reproduction.ts) is wired in.
+ * The `SexualReproduction` strategy in reproduction.ts consults a MateSelector
+ * to pick the most attractive willing partner; this file defines the preference
+ * vector, how a candidate's observable qualities are computed, and the scoring.
  * -----------------------------------------------------------------------------
  */
 
+import { GENE_KEYS, GENES } from './config.js';
+import { clamp, norm } from './utils.js';
 import type { RNG } from './rng.js';
+import type { Organism } from './organism.js';
 
-/** Mate-preference dimensions the design anticipates (data => easy to extend). */
+/**
+ * Mate-preference dimensions. Each maps to an observable quality of a candidate
+ * (see `candidateQualities`). Data-driven, so adding a preference is one entry
+ * plus its quality computation.
+ */
 export const PREFERENCE_KEYS = [
-  'strength', 'speed', 'coloration', 'size', 'symmetry', 'rarity',
-  'display', 'intelligence', 'territoryQuality', 'age', 'health', 'geneticDiversity',
+  'ornament',      // the costly display trait
+  'size',
+  'speed',
+  'strength',
+  'intelligence',
+  'coloration',    // brightness (inverse of camouflage)
+  'health',        // current energy reserve
+  'age',           // proven survivor
+  'diversity',     // genetic dissimilarity to the chooser (outbreeding)
 ] as const;
 
 export type PreferenceKey = (typeof PREFERENCE_KEYS)[number];
 export type PreferenceWeights = Record<PreferenceKey, number>;
 
 /**
- * A heritable, mutable vector of mate-preference weights in roughly [-1, 1].
- * Positive = attracted to more of that quality; negative = repelled. Defaults
- * to neutral so enabling sexual selection does not instantly bias the population.
+ * A heritable, mutable vector of mate-preference weights in [-1, 1]. Positive =
+ * attracted to more of that quality; negative = repelled; 0 = indifferent.
  */
 export class PreferenceGenome {
   weights: PreferenceWeights;
@@ -46,32 +57,88 @@ export class PreferenceGenome {
     return new PreferenceGenome();
   }
 
+  /** Founders start with small random preferences so selection has variation. */
+  static random(rng: RNG): PreferenceGenome {
+    const w: Partial<PreferenceWeights> = {};
+    for (const key of PREFERENCE_KEYS) w[key] = clamp(rng.gaussian(0, 0.15), -1, 1);
+    return new PreferenceGenome(w);
+  }
+
   clone(): PreferenceGenome {
     return new PreferenceGenome({ ...this.weights });
   }
 }
 
 /**
- * MateSelector — scores and chooses mates by preference match.
- *
- * FUTURE/INERT: methods throw today. The intended attractiveness model is a
- * dot-product of the chooser's preference weights with the candidate's
- * observable qualities — where a costly ornament can win matings, producing the
- * runaway-selection feedback loop.
+ * Compute a candidate's observable qualities in [0,1], as seen by `chooser`.
+ * (The `diversity` quality is relative — genetic distance from the chooser.)
+ */
+export function candidateQualities(candidate: Organism, chooser: Organism): PreferenceWeights {
+  const g = (k: keyof typeof GENES) => norm(candidate.genome.expressed(k), GENES[k].min, GENES[k].max);
+
+  let geneticDistance = 0;
+  for (const k of GENE_KEYS) {
+    const spec = GENES[k];
+    const a = norm(candidate.genome.expressed(k), spec.min, spec.max);
+    const b = norm(chooser.genome.expressed(k), spec.min, spec.max);
+    geneticDistance += Math.abs(a - b);
+  }
+  geneticDistance /= GENE_KEYS.length;
+
+  return {
+    ornament: g('ornament'),
+    size: g('size'),
+    speed: g('speed'),
+    strength: g('strength'),
+    intelligence: g('intelligence'),
+    coloration: 1 - g('camouflage'),
+    health: candidate.energyFraction(),
+    age: candidate.ageFraction(),
+    diversity: clamp(geneticDistance * 2, 0, 1), // scale so typical distances span the range
+  };
+}
+
+/**
+ * MateSelector — scores candidates by how well they match the chooser's
+ * preferences and returns the most attractive willing partner.
  */
 export class MateSelector {
-  constructor(private rng: RNG) {}
+  constructor(private rng: RNG, private choosiness = 1) {}
 
-  scoreCandidate(_chooserPrefs: PreferenceWeights, _candidateQualities: Partial<PreferenceWeights>): number {
-    // Reference (kept commented to avoid implying it is live):
-    //   let score = 0;
-    //   for (const key of PREFERENCE_KEYS)
-    //     score += _chooserPrefs[key] * (_candidateQualities[key] ?? 0);
-    //   return score;
-    throw new Error('MateSelector.scoreCandidate: reserved for future sexual selection.');
+  setChoosiness(c: number): void {
+    this.choosiness = c;
   }
 
-  choose(_chooser: unknown, _candidates: unknown[], _ctx: unknown): never {
-    throw new Error('MateSelector.choose: reserved for future sexual selection.');
+  /**
+   * Attractiveness = Σ preferenceWeight × (quality centred to [-1,1]), scaled by
+   * choosiness. A strong preference for a high-quality trait yields a high score;
+   * this is the channel through which a costly ornament can win matings.
+   */
+  scoreCandidate(prefs: PreferenceWeights, qualities: PreferenceWeights): number {
+    let score = 0;
+    for (const key of PREFERENCE_KEYS) {
+      score += prefs[key] * (qualities[key] - 0.5) * 2;
+    }
+    return score * this.choosiness;
+  }
+
+  /**
+   * Choose the most attractive willing mate from `candidates` (excluding the
+   * chooser). A little noise keeps mate choice from being perfectly greedy.
+   * Returns null if there is no suitable partner.
+   */
+  choose(chooser: Organism, candidates: Organism[]): Organism | null {
+    let best: Organism | null = null;
+    let bestScore = -Infinity;
+    for (const c of candidates) {
+      if (c === chooser || !c.alive) continue;
+      const score = this.scoreCandidate(chooser.preferences.weights, candidateQualities(c, chooser)) +
+        this.rng.gaussian(0, 0.15);
+      if (score > bestScore) {
+        bestScore = score;
+        best = c;
+      }
+    }
+    return best;
   }
 }

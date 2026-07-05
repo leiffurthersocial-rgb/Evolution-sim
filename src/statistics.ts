@@ -30,6 +30,8 @@ export interface Summary {
   avgOffspring: number;
   diversity: number;
   avgEfficiency: number;
+  /** Mean heritable preference-weight for the ornament trait (sexual selection). */
+  avgOrnamentPref: number;
   dominantPhenotype: string;
   phenotypeCounts: Record<string, number>;
   genes: Genes;
@@ -93,6 +95,7 @@ export class Statistics {
       avgOffspring: 0,
       diversity: 0,
       avgEfficiency: 0,
+      avgOrnamentPref: 0,
       dominantPhenotype: '—',
       phenotypeCounts: {},
       genes: Object.fromEntries(GENE_KEYS.map((k) => [k, GENES[k].init])) as Genes,
@@ -144,10 +147,12 @@ export class Statistics {
       const geneValues = Object.fromEntries(GENE_KEYS.map((k) => [k, [] as number[]])) as Record<GeneKey, number[]>;
       const phenotypeCounts: Record<string, number> = {};
       let fitnessSum = 0;
+      let ornamentPrefSum = 0;
 
       for (const o of organisms) {
         for (const k of GENE_KEYS) geneValues[k].push(o.genome.expressed(k));
         fitnessSum += o.fitnessEstimate();
+        ornamentPrefSum += o.preferences.weights.ornament;
         const p = this.classify(o);
         phenotypeCounts[p] = (phenotypeCounts[p] || 0) + 1;
       }
@@ -155,6 +160,7 @@ export class Statistics {
       for (const k of GENE_KEYS) s.genes[k] = mean(geneValues[k]);
       s.avgFitness = fitnessSum / pop;
       s.avgEfficiency = s.genes.energyEfficiency;
+      s.avgOrnamentPref = ornamentPrefSum / pop;
 
       // Genetic diversity = mean per-gene normalised standard deviation.
       let divSum = 0;

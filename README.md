@@ -63,14 +63,46 @@ console.log(sim.stats.toCSV());      // full time-series
   press `f`) any time to frame the entire world regardless of its size.
 - **Zoom & pan:** scroll to zoom (anchored under the cursor), drag to pan, or
   use the `+` / `−` buttons. The zoom percentage is shown in the view bar.
-- **Inspect an organism:** click any organism to open a live inspector showing
-  its id, lineage colour, generation, offspring, energy/age bars, every gene
-  (base *and* expressed value — a ▲ marks an active duplication/suppression),
-  and derived attributes (max speed, metabolism, vision, combat power,
-  maturation age, effective lifespan). The panel tracks the organism as it moves
-  and closes itself if it dies. Press `Esc` or ✕ to deselect.
+- **Inspect & edit a single organism:** click any organism to open a live
+  inspector showing its id, lineage colour, generation, offspring, energy/age
+  bars, derived attributes, and mate preferences. Every gene has an **editable
+  slider** — drag it to rewrite that individual's genotype in place and watch the
+  change propagate. Action buttons let you **Clone** (spawn a mutated copy),
+  **Energy** (refill), or **Kill** it. The panel tracks the organism as it moves
+  and closes if it dies. Press `Esc` or ✕ to deselect.
+- **Population tools:** spawn individuals (**Add 1** / **Add 10**) or **Cull 10%**
+  from the left panel, to seed or perturb the population on demand.
 - **Keyboard:** `space` pause/resume, `n` single-step, `f` fit, `+`/`−` zoom,
   `Esc` deselect.
+
+### Sexual selection & reproduction modes
+
+Switch **Reproduction** between *Asexual* (clone + mutate) and *Sexual* (two
+parents, recombination, and **mate choice**) live from the Evolution panel — no
+restart needed.
+
+In sexual mode every organism carries a **heritable, mutable preference vector**
+(what it finds attractive in a mate) and a costly **`ornament`** gene — a
+peacock's-tail display that drains energy and gives *no* survival benefit.
+Ready, well-fed adults actively seek the most attractive willing mate nearby; the
+`MateSelector` scores candidates by how well they match the chooser's
+preferences. Because preferences are inherited and co-evolve with the traits they
+select for, a costly ornament can spread even while it hurts survival — **runaway
+sexual selection**. Watch the *Ornament* trait average and *Ornament Preference*
+readout: under natural selection alone the ornament decays toward zero; under
+sexual selection it inflates. Tune **Choosiness**, **Mate Willingness**, **Mate
+Search ×Vision**, and the preference-mutation sliders to make selection stronger
+or weaker.
+
+### "Fair" evolution (conserved trait budget)
+
+Toggle **Fair evolution** to make every mutation a strict, direct tradeoff: the
+mutation engine conserves a normalised **trait budget**, so any points a child
+gains in one trait are taken from others. No individual can be maxed in
+everything — a hard, explicit constraint layered on top of the (always-on)
+metabolic tradeoffs. (Fair mode is deliberately harder to survive under; combined
+with sexual reproduction it is "hard mode" — raise food density if a population
+struggles.)
 
 ---
 
@@ -208,12 +240,14 @@ the same seed match exactly, and different seeds diverge.
 
 ## Genetics & mutation
 
-Each organism carries a **genome** of twelve continuous, bounded genes
+Each organism carries a **genome** of thirteen continuous, bounded genes
 (strength, speed, size, vision, energy efficiency, max energy, reproduction
-threshold, lifespan, fertility, camouflage, aggression, intelligence). Offspring
-inherit the parent's base genes; each gene then mutates **independently**.
-Mutation magnitude is drawn from a Gaussian, so **small mutations are common and
-large ones rare**, and all values stay within configurable limits.
+threshold, lifespan, fertility, camouflage, aggression, intelligence, and the
+costly display gene **ornament**). Offspring inherit the parent's base genes;
+each gene then mutates **independently**. Mutation magnitude is drawn from a
+Gaussian, so **small mutations are common and large ones rare**, and all values
+stay within configurable limits. In **fair mode** the engine additionally
+conserves the trait budget across inheritance (see above).
 
 Mutation categories (all live, all modular in `mutation.ts`):
 
@@ -248,14 +282,14 @@ allopatric drift between distant lineages.
 ## Designed for future expansion (not yet implemented)
 
 The architecture deliberately prepares — but does not implement — the spec's
-planned systems, so they can be added without a rewrite:
+remaining planned systems, so they can be added without a rewrite:
 
-- **Sexual reproduction & sexual selection** (the headline future feature).
-  `reproduction.ts` already programs the simulation against a
-  `ReproductionStrategy` interface, and `selection.ts` defines a heritable,
-  co-evolving `PreferenceGenome` plus a `MateSelector` scoring model — the exact
-  ingredients for runaway selection (peacock tails). Both are present as
-  interfaces/stubs and inert.
+- **Sexual reproduction & sexual selection** — now *implemented* (see above):
+  a live-switchable `SexualReproduction` strategy with recombination, a
+  heritable co-evolving `PreferenceGenome`, and a `MateSelector` that drives mate
+  choice and runaway ornament evolution. Further sexual-selection depth
+  (two sexes, dominant/recessive alleles, sex-linkage, inbreeding penalties)
+  slots into these same interfaces.
 - **Predator/prey, speciation, ecosystem (weather/seasons/disease), and neural
   behaviour** each map onto an existing seam (environment, statistics, the
   organism's isolated `decide()` method).

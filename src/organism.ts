@@ -21,13 +21,15 @@
 
 import { GENES, GeneKey, SimConfig } from './config.js';
 import { clamp, dist, dist2, hslToCss, SpatialGrid } from './utils.js';
+import { PreferenceGenome } from './selection.js';
 import type { Genome } from './genome.js';
 import type { Environment } from './environment.js';
 import type { RNG } from './rng.js';
 import type { MutationEngine, MutationTally } from './mutation.js';
 import type { ReproductionStrategy } from './reproduction.js';
+import type { MateSelector } from './selection.js';
 
-export type CauseOfDeath = 'starvation' | 'oldAge' | 'combat' | null;
+export type CauseOfDeath = 'starvation' | 'oldAge' | 'combat' | 'culled' | null;
 
 /** Shared per-tick context handed to every organism's update(). */
 export interface TickContext {
@@ -36,6 +38,7 @@ export interface TickContext {
   config: SimConfig;
   mutation: MutationEngine;
   reproduction: ReproductionStrategy;
+  mateSelector: MateSelector;
   organismGrid: SpatialGrid<Organism>;
   canGrowPopulation(): boolean;
   spawnChild(genome: Genome, x: number, y: number, gen: number, hue: number): Organism;
@@ -54,6 +57,8 @@ let NEXT_ID = 1;
 export class Organism {
   readonly id: number;
   genome: Genome;
+  /** Heritable, mutable mate preferences (used by sexual selection). */
+  preferences: PreferenceGenome = PreferenceGenome.neutral();
   private config: SimConfig;
 
   x: number;
@@ -136,6 +141,7 @@ export class Organism {
     m += this.genome.expressed('camouflage') * c.camouflage;
     m += this.genome.expressed('maxEnergy') * c.maxEnergy;
     m += this.genome.expressed('aggression') * c.aggression;
+    m += this.genome.expressed('ornament') * c.ornament;
     return m / eff;
   }
 
@@ -171,6 +177,16 @@ export class Organism {
     this.reproCooldown = 260 * (1.6 - fertility);
   }
 
+  /** True if this organism can act as a mate right now (sexual reproduction). */
+  isWillingMate(): boolean {
+    return (
+      this.alive &&
+      this.age >= this.maturityAge &&
+      this.reproCooldown <= 0 &&
+      this.energy >= this.config.reproduction.willingness * this.maxEnergyValue
+    );
+  }
+
   update(ctx: TickContext): void {
     if (!this.alive) return;
     const { env } = ctx;
@@ -191,12 +207,17 @@ export class Organism {
         rng: ctx.rng,
         mutation: ctx.mutation,
         config: this.config,
+        organismGrid: ctx.organismGrid,
+        mateSelector: ctx.mateSelector,
       });
       if (result) {
         const spot = env.nearbyOpenPoint(this.x, this.y, this.radius);
-        const childHue = this.hue + ctx.rng.gaussian(0, 4);
+        // Lineage hue: for sexual reproduction, blend toward the mate's hue.
+        const baseHue = result.mateHue !== undefined ? (this.hue + result.mateHue) / 2 : this.hue;
+        const childHue = baseHue + ctx.rng.gaussian(0, 4);
         const child = ctx.spawnChild(result.genome, spot.x, spot.y, this.generation + 1, childHue);
         child.energy = result.energyGiven;
+        child.preferences = result.preferences;
         ctx.recordMutation(result.tally);
       }
     }
@@ -238,6 +259,19 @@ export class Organism {
       }
     }
 
+    // Mate seeking (sexual mode only): a well-fed, ready adult moves toward the
+    // nearest willing mate. Without this, a spread-out population can never pair
+    // up and sexual reproduction collapses. Hunger still takes priority (below),
+    // so organisms don't starve chasing mates.
+    if (
+      ctx.reproduction.kind === 'sexual' &&
+      this.energyFraction() >= 0.45 &&
+      this.isWillingMate()
+    ) {
+      const mate = this._nearestWillingMate(ctx, vision * this.config.reproduction.mateSearchFactor);
+      if (mate) return { tx: mate.x, ty: mate.y, fleeing: false };
+    }
+
     // Food seeking.
     const food = env.nearestFood(this.x, this.y, vision);
     if (food && rng.next() < 0.35 + 0.65 * intel) {
@@ -249,6 +283,23 @@ export class Organism {
       this.dir += rng.gaussian(0, 0.6);
     }
     return null;
+  }
+
+  /** Nearest willing mate within `radius`, or null. */
+  private _nearestWillingMate(ctx: TickContext, radius: number): Organism | null {
+    const neighbours = ctx.organismGrid.query(this.x, this.y, radius, this._scratch);
+    let best: Organism | null = null;
+    let bestD2 = radius * radius;
+    for (let i = 0; i < neighbours.length; i++) {
+      const o = neighbours[i];
+      if (o === this || !o.isWillingMate()) continue;
+      const d2 = dist2(this.x, this.y, o.x, o.y);
+      if (d2 < bestD2) {
+        bestD2 = d2;
+        best = o;
+      }
+    }
+    return best;
   }
 
   move(decision: Decision | null, ctx: TickContext): void {

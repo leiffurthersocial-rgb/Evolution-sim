@@ -50,7 +50,7 @@ export class Renderer {
     fitness: false,
     mutation: false,
     generation: false,
-    terrain: true,
+    terrain: false,     // fertile-soil heatmap off by default
     safeZones: true,
   };
 
@@ -213,6 +213,17 @@ export class Renderer {
   private drawOrganism(o: Organism): void {
     const ctx = this.ctx;
     const r = o.radius;
+
+    // Ornament plume: a bright, translucent halo whose size scales with the
+    // (costly) ornament gene. Under sexual selection this visibly inflates.
+    const ornament = o.genome.expressed('ornament');
+    if (ornament > 0.02) {
+      const plume = r + ornament * 12;
+      ctx.beginPath();
+      ctx.arc(o.x, o.y, plume, 0, Math.PI * 2);
+      ctx.fillStyle = hslToCss(o.hue + 40, 0.9, 0.6).replace('hsl', 'hsla').replace(')', `, ${0.10 + ornament * 0.25})`);
+      ctx.fill();
+    }
 
     if (this.overlays.vision) {
       ctx.beginPath();

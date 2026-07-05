@@ -20,9 +20,12 @@
  */
 import { GENES } from './config.js';
 import { clamp, dist, dist2, hslToCss } from './utils.js';
+import { PreferenceGenome } from './selection.js';
 let NEXT_ID = 1;
 export class Organism {
     constructor(genome, x, y, config, generation = 0, hue = 0) {
+        /** Heritable, mutable mate preferences (used by sexual selection). */
+        this.preferences = PreferenceGenome.neutral();
         this.dir = 0;
         this.vx = 0;
         this.vy = 0;
@@ -86,6 +89,7 @@ export class Organism {
         m += this.genome.expressed('camouflage') * c.camouflage;
         m += this.genome.expressed('maxEnergy') * c.maxEnergy;
         m += this.genome.expressed('aggression') * c.aggression;
+        m += this.genome.expressed('ornament') * c.ornament;
         return m / eff;
     }
     /** Age (ticks) at which reproduction becomes possible. Bigger/longer-lived
@@ -115,6 +119,13 @@ export class Organism {
         const fertility = this.genome.expressed('fertility');
         this.reproCooldown = 260 * (1.6 - fertility);
     }
+    /** True if this organism can act as a mate right now (sexual reproduction). */
+    isWillingMate() {
+        return (this.alive &&
+            this.age >= this.maturityAge &&
+            this.reproCooldown <= 0 &&
+            this.energy >= this.config.reproduction.willingness * this.maxEnergyValue);
+    }
     update(ctx) {
         if (!this.alive)
             return;
@@ -134,12 +145,17 @@ export class Organism {
                 rng: ctx.rng,
                 mutation: ctx.mutation,
                 config: this.config,
+                organismGrid: ctx.organismGrid,
+                mateSelector: ctx.mateSelector,
             });
             if (result) {
                 const spot = env.nearbyOpenPoint(this.x, this.y, this.radius);
-                const childHue = this.hue + ctx.rng.gaussian(0, 4);
+                // Lineage hue: for sexual reproduction, blend toward the mate's hue.
+                const baseHue = result.mateHue !== undefined ? (this.hue + result.mateHue) / 2 : this.hue;
+                const childHue = baseHue + ctx.rng.gaussian(0, 4);
                 const child = ctx.spawnChild(result.genome, spot.x, spot.y, this.generation + 1, childHue);
                 child.energy = result.energyGiven;
+                child.preferences = result.preferences;
                 ctx.recordMutation(result.tally);
             }
         }
@@ -182,6 +198,17 @@ export class Organism {
                 return { tx: this.x + Math.cos(ang) * 40, ty: this.y + Math.sin(ang) * 40, fleeing: true };
             }
         }
+        // Mate seeking (sexual mode only): a well-fed, ready adult moves toward the
+        // nearest willing mate. Without this, a spread-out population can never pair
+        // up and sexual reproduction collapses. Hunger still takes priority (below),
+        // so organisms don't starve chasing mates.
+        if (ctx.reproduction.kind === 'sexual' &&
+            this.energyFraction() >= 0.45 &&
+            this.isWillingMate()) {
+            const mate = this._nearestWillingMate(ctx, vision * this.config.reproduction.mateSearchFactor);
+            if (mate)
+                return { tx: mate.x, ty: mate.y, fleeing: false };
+        }
         // Food seeking.
         const food = env.nearestFood(this.x, this.y, vision);
         if (food && rng.next() < 0.35 + 0.65 * intel) {
@@ -192,6 +219,23 @@ export class Organism {
             this.dir += rng.gaussian(0, 0.6);
         }
         return null;
+    }
+    /** Nearest willing mate within `radius`, or null. */
+    _nearestWillingMate(ctx, radius) {
+        const neighbours = ctx.organismGrid.query(this.x, this.y, radius, this._scratch);
+        let best = null;
+        let bestD2 = radius * radius;
+        for (let i = 0; i < neighbours.length; i++) {
+            const o = neighbours[i];
+            if (o === this || !o.isWillingMate())
+                continue;
+            const d2 = dist2(this.x, this.y, o.x, o.y);
+            if (d2 < bestD2) {
+                bestD2 = d2;
+                best = o;
+            }
+        }
+        return best;
     }
     move(decision, ctx) {
         const { env } = ctx;

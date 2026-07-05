@@ -15,7 +15,8 @@ import { Environment } from './environment.js';
 import { Organism } from './organism.js';
 import { Genome } from './genome.js';
 import { MutationEngine } from './mutation.js';
-import { AsexualReproduction } from './reproduction.js';
+import { AsexualReproduction, SexualReproduction } from './reproduction.js';
+import { MateSelector, PreferenceGenome } from './selection.js';
 import { Statistics } from './statistics.js';
 import { SpatialGrid } from './utils.js';
 export class Simulation {
@@ -29,7 +30,8 @@ export class Simulation {
         this.rng = new RNG(this.config.seed);
         this.env = new Environment(this.config, this.rng);
         this.mutation = new MutationEngine(this.rng, this.config);
-        this.reproduction = new AsexualReproduction();
+        this.mateSelector = new MateSelector(this.rng, this.config.sexual.choosiness);
+        this.reproduction = this.makeStrategy(this.config.reproduction.mode);
         this.stats = new Statistics(this.config);
         this.organisms = [];
         this.organismGrid = new SpatialGrid(this.env.width, this.env.height, 48);
@@ -50,8 +52,50 @@ export class Simulation {
                 continue;
             }
             const hue = (i / n) * 360;
-            this.organisms.push(new Organism(genome, x, y, this.config, 0, hue));
+            const o = new Organism(genome, x, y, this.config, 0, hue);
+            o.preferences = PreferenceGenome.random(this.rng);
+            this.organisms.push(o);
         }
+    }
+    /** Build the reproduction strategy for a mode. */
+    makeStrategy(mode) {
+        return mode === 'sexual' ? new SexualReproduction() : new AsexualReproduction();
+    }
+    /** Switch reproduction mode live without rebuilding the world. */
+    setReproductionMode(mode) {
+        this.config.reproduction.mode = mode;
+        this.reproduction = this.makeStrategy(mode);
+    }
+    /**
+     * Inject a new organism (for the "add individual" tools). Defaults to a
+     * founder genome with random preferences at the world centre.
+     */
+    addOrganism(opts = {}) {
+        const genome = opts.genome ?? Genome.founder(this.rng);
+        const x = opts.x ?? this.env.width / 2;
+        const y = opts.y ?? this.env.height / 2;
+        const hue = opts.hue ?? this.rng.range(0, 360);
+        const o = new Organism(genome, x, y, this.config, this.generation, hue);
+        o.preferences = PreferenceGenome.random(this.rng);
+        this.organisms.push(o);
+        return o;
+    }
+    /** Spawn a mutated copy of an organism nearby (the inspector's "Clone"). */
+    cloneOrganism(parent) {
+        const { genes, modifiers } = this.mutation.mutate(parent.genome.cloneGenes());
+        const genome = new Genome(genes);
+        for (const m of modifiers)
+            genome.setModifier(m.key, m.factor, m.ticks);
+        const spot = this.env.nearbyOpenPoint(parent.x, parent.y, parent.radius);
+        const child = new Organism(genome, spot.x, spot.y, this.config, parent.generation + 1, parent.hue + this.rng.gaussian(0, 6));
+        child.preferences = this.mutation.mutatePreferences(parent.preferences);
+        child.energy = parent.maxEnergyValue * 0.5;
+        this.organisms.push(child);
+        return child;
+    }
+    /** Randomly remove a fraction of the population (the "Cull" tool). */
+    cull(fraction) {
+        this.organisms = this.organisms.filter(() => this.rng.next() >= fraction);
     }
     canGrowPopulation() {
         return this.organisms.length < this.config.population.cap;
@@ -62,6 +106,8 @@ export class Simulation {
         env.regenerate();
         env.rebuildIndex();
         this.rebuildOrganismGrid();
+        // Keep sexual-selection choosiness in sync with the (runtime-adjustable) config.
+        this.mateSelector.setChoosiness(this.config.sexual.choosiness);
         const newborns = [];
         const ctx = {
             env,
@@ -69,6 +115,7 @@ export class Simulation {
             config: this.config,
             mutation: this.mutation,
             reproduction: this.reproduction,
+            mateSelector: this.mateSelector,
             organismGrid: this.organismGrid,
             canGrowPopulation: () => this.organisms.length + newborns.length < this.config.population.cap,
             spawnChild: (genome, x, y, gen, hue) => {

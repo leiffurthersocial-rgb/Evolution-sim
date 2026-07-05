@@ -61,6 +61,14 @@ class App {
       onFit: () => this.fitView(),
       onZoom: (factor) => this.zoomCentre(factor),
       onDeselect: () => this.select(null),
+      onSetMode: (mode) => this.sim.setReproductionMode(mode),
+      onFairMode: (on) => { this.config.mutation.fairMode = on; },
+      onTerrain: (on) => this.setTerrain(on),
+      onAddIndividual: (count) => this.addIndividuals(count),
+      onCull: (fraction) => this.sim.cull(fraction),
+      onCloneSelected: () => this.cloneSelected(),
+      onKillSelected: () => this.killSelected(),
+      onBoostSelected: () => this.boostSelected(),
     });
 
     // Canvas interaction: pick organisms, pan, zoom, hover.
@@ -107,6 +115,44 @@ class App {
     // If the user hadn't manually panned/zoomed, keep the whole map in view.
     if (wasFitted) this.camera.fit(this.sim.env.width, this.sim.env.height, w, h);
     this.ui.updateViewReadout();
+  }
+
+  // ---- Evolution & population tools ---------------------------------------
+  private setTerrain(on: boolean): void {
+    this.config.world.terrainEnabled = on;
+    this.sim.env.generateTerrain();       // regenerate the fertility field live
+    this.renderer.overlays.terrain = on;  // show the heatmap when enabled
+  }
+
+  private addIndividuals(count: number): void {
+    const env = this.sim.env;
+    for (let i = 0; i < count; i++) {
+      // A single add lands at the world centre; batches scatter randomly.
+      if (count === 1) {
+        this.sim.addOrganism({});
+      } else {
+        this.sim.addOrganism({ x: this.sim.rng.range(0, env.width), y: this.sim.rng.range(0, env.height) });
+      }
+    }
+  }
+
+  private cloneSelected(): void {
+    if (this.selectedId === null) return;
+    const o = this.sim.findById(this.selectedId);
+    if (o) this.sim.cloneOrganism(o);
+  }
+
+  private killSelected(): void {
+    if (this.selectedId === null) return;
+    const o = this.sim.findById(this.selectedId);
+    if (o) o.die('culled');
+    this.select(null);
+  }
+
+  private boostSelected(): void {
+    if (this.selectedId === null) return;
+    const o = this.sim.findById(this.selectedId);
+    if (o) o.energy = o.maxEnergyValue;
   }
 
   // ---- Selection ----------------------------------------------------------

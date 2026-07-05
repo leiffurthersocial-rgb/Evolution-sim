@@ -39,6 +39,11 @@ export const GENES = {
   camouflage:            { min: 0.00, max: 1.00, init: 0.10, label: 'Camouflage' },
   aggression:            { min: 0.00, max: 1.00, init: 0.30, label: 'Aggression' },
   intelligence:          { min: 0.00, max: 1.00, init: 0.40, label: 'Intelligence' },
+  // Ornament: a costly display trait ("peacock's tail"). It gives NO survival
+  // benefit and drains energy every tick, so natural selection alone drives it
+  // toward zero. Only sexual selection (mate preference for it) can make it grow
+  // — the ingredient for runaway sexual selection.
+  ornament:              { min: 0.00, max: 1.00, init: 0.05, label: 'Ornament' },
 } satisfies Record<string, GeneSpec>;
 
 /** Union of all gene names, derived from the table above (stays in sync). */
@@ -63,9 +68,10 @@ export const DEFAULT_CONFIG = {
   world: {
     width: 960,
     height: 640,
-    obstacleCount: 7,
+    obstacleCount: 0,        // obstacles off by default (re-enable via the slider)
     safeZoneCount: 2,
     terrainCells: 24,
+    terrainEnabled: false,   // fertile-soil variation off by default (uniform food)
   },
 
   // ---- Population --------------------------------------------------------
@@ -80,7 +86,7 @@ export const DEFAULT_CONFIG = {
     density: 0.00018,
     energyPerItem: 34,
     regenPerTick: 0.9,
-    clusterOnFertile: true,
+    clusterOnFertile: false, // uniform spawning while fertile soil is disabled
     maxItemsHardCap: 4000,
   },
 
@@ -96,6 +102,29 @@ export const DEFAULT_CONFIG = {
     pSuppression: 0.04,
     pMacro: 0.01,
     duplicationTicks: 600,
+    // "Fair" evolution: when on, the mutation engine conserves a trait BUDGET —
+    // every point a child gains in one trait is taken from others, so no
+    // individual can be maxed in everything. A hard, explicit tradeoff on top of
+    // the (always-on) metabolic tradeoffs. See mutation.ts.
+    fairMode: false,
+  },
+
+  // ---- Reproduction ------------------------------------------------------
+  reproduction: {
+    // 'asexual' (clone + mutate) or 'sexual' (two parents, recombination, and
+    // mate choice / sexual selection). Switchable live from the UI.
+    mode: 'asexual' as 'asexual' | 'sexual',
+    mateSearchFactor: 1.8,   // mate search radius = vision × this
+    willingness: 0.40,       // a mate must hold ≥ willingness × maxEnergy to breed
+  },
+
+  // ---- Sexual selection --------------------------------------------------
+  sexual: {
+    // Mate preferences are heritable & mutable; these govern how they drift and
+    // how strongly they bias mate choice (choosiness → runaway potential).
+    preferenceMutationRate: 0.5,
+    preferenceMutationMag: 0.08,
+    choosiness: 1.0,         // multiplier on preference influence when scoring mates
   },
 
   // ---- Simulation loop ---------------------------------------------------
@@ -121,6 +150,7 @@ export const DEFAULT_CONFIG = {
       camouflage: 0.030,
       maxEnergy: 0.00060,
       aggression: 0.020,
+      ornament: 0.060,       // display is expensive — pure survival cost
     },
     moveCostCoeff: 0.020,
     eatRateBase: 6,
@@ -147,6 +177,7 @@ export const PHENOTYPES: Record<string, string> = {
   energyEfficiency: 'Ascetic',
   aggression:       'Raider',
   camouflage:       'Lurker',
+  ornament:         'Showoff',
   _generalist:      'Generalist',
 };
 
