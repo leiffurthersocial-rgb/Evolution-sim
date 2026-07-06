@@ -16,10 +16,14 @@
  * -----------------------------------------------------------------------------
  */
 
-import { hslToCss } from './utils.js';
+import { hslToCss, clamp, norm } from './utils.js';
+import { GENES, GeneKey } from './config.js';
 import type { Simulation } from './simulation.js';
 import type { Organism } from './organism.js';
 import type { Camera } from './camera.js';
+
+/** How organism bodies are coloured: by lineage, or as a trait/vital heatmap. */
+export type ColorMode = 'lineage' | 'energy' | 'age' | GeneKey;
 
 export interface Overlays {
   vision: boolean;
@@ -42,6 +46,9 @@ export class Renderer {
   /** Ids of the selected / hovered organisms (or null). */
   selectedId: number | null = null;
   hoveredId: number | null = null;
+
+  /** Body colouring mode (lineage hue, or a trait/vital heatmap). */
+  colorMode: ColorMode = 'lineage';
 
   overlays: Overlays = {
     vision: false,
@@ -235,7 +242,7 @@ export class Renderer {
 
     ctx.beginPath();
     ctx.arc(o.x, o.y, r, 0, Math.PI * 2);
-    ctx.fillStyle = o.bodyColor();
+    ctx.fillStyle = this.bodyColorFor(o);
     ctx.fill();
     ctx.lineWidth = (0.5 + o.genome.expressed('strength') * 2.5) / this.camera.scale;
     ctx.strokeStyle = 'rgba(0,0,0,0.5)';
@@ -265,6 +272,22 @@ export class Renderer {
       ctx.lineWidth = 2 / this.camera.scale;
       ctx.stroke();
     }
+  }
+
+  /** Blue→red heatmap for a normalised value (0 = cool, 1 = hot). */
+  private heat(t: number): string {
+    return hslToCss((1 - clamp(t, 0, 1)) * 220, 0.85, 0.55);
+  }
+
+  /** Resolve an organism's body colour under the current colour mode. */
+  bodyColorFor(o: Organism): string {
+    const m = this.colorMode;
+    if (m === 'lineage') return o.bodyColor();
+    if (m === 'energy') return this.heat(o.energyFraction());
+    if (m === 'age') return this.heat(o.ageFraction());
+    const g = GENES[m];
+    if (g) return this.heat(norm(o.genome.expressed(m), g.min, g.max));
+    return o.bodyColor();
   }
 
   private drawHighlight(o: Organism, color: string, width: number): void {

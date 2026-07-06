@@ -12,7 +12,7 @@
  * frame, since they change slowly and are comparatively costly to redraw.
  * -----------------------------------------------------------------------------
  */
-import { DEFAULT_CONFIG, cloneConfig } from './config.js';
+import { DEFAULT_CONFIG, cloneConfig, SPEED_PRESETS } from './config.js';
 import { Simulation } from './simulation.js';
 import { Renderer } from './renderer.js';
 import { Camera } from './camera.js';
@@ -22,7 +22,13 @@ import { UI } from './ui.js';
 class App {
     constructor() {
         this.selectedId = null;
+        this.followSelected = false;
         this._lastStatsPaint = 0;
+        // Fractional-speed accumulator + live ticks-per-second meter.
+        this._stepAcc = 0;
+        this._stepsThisSec = 0;
+        this._tpsWindowStart = 0;
+        this._tps = 0;
         this.config = cloneConfig(DEFAULT_CONFIG);
         this.canvas = document.getElementById('world');
         this.sim = new Simulation(this.config);
@@ -52,6 +58,9 @@ class App {
             onCloneSelected: () => this.cloneSelected(),
             onKillSelected: () => this.killSelected(),
             onBoostSelected: () => this.boostSelected(),
+            onToggleFollow: () => this.toggleFollow(),
+            onColorMode: (mode) => { this.renderer.colorMode = mode; },
+            onSpeedIndex: (i) => { this.config.sim.speed = SPEED_PRESETS[i]; },
         });
         // Canvas interaction: pick organisms, pan, zoom, hover.
         this.input = new InputController(this.canvas, this.camera, {
@@ -133,6 +142,19 @@ class App {
         if (o)
             o.energy = o.maxEnergyValue;
     }
+    toggleFollow() {
+        this.followSelected = !this.followSelected;
+        return this.followSelected;
+    }
+    /** Step the simulation speed up/down through the presets (keyboard [ ]). */
+    stepSpeed(dir) {
+        let i = SPEED_PRESETS.indexOf(this.config.sim.speed);
+        if (i < 0)
+            i = SPEED_PRESETS.findIndex((v) => v >= this.config.sim.speed);
+        i = Math.max(0, Math.min(SPEED_PRESETS.length - 1, i + dir));
+        this.config.sim.speed = SPEED_PRESETS[i];
+        this.ui.syncSpeed(i);
+    }
     // ---- Selection ----------------------------------------------------------
     pickAt(world) {
         const o = this.renderer.pick(world.x, world.y);
@@ -146,7 +168,9 @@ class App {
     select(id) {
         this.selectedId = id;
         this.renderer.selectedId = id;
-        this.ui.updateInspector(id !== null ? this.sim.findById(id) : null);
+        if (id === null)
+            this.followSelected = false; // stop following when deselected
+        this.ui.updateInspector(id !== null ? this.sim.findById(id) : null, this.followSelected);
     }
     // ---- Controls -----------------------------------------------------------
     togglePause() {
@@ -210,6 +234,12 @@ class App {
                 case '-':
                     this.zoomCentre(1 / 1.25);
                     break;
+                case '[':
+                    this.stepSpeed(-1);
+                    break;
+                case ']':
+                    this.stepSpeed(+1);
+                    break;
                 case 'Escape':
                     this.select(null);
                     break;
@@ -218,6 +248,12 @@ class App {
     }
     // ---- Loop ---------------------------------------------------------------
     renderFrame(timestamp, forceStats = false) {
+        // Follow-cam: keep the tracked organism centred (before rendering).
+        if (this.followSelected && this.selectedId !== null) {
+            const o = this.sim.findById(this.selectedId);
+            if (o)
+                this.camera.centerOn(o.x, o.y, this.renderer.viewW, this.renderer.viewH);
+        }
         this.renderer.render();
         // Keep the inspector tracking a live organism (clear it if it died).
         if (this.selectedId !== null) {
@@ -225,20 +261,46 @@ class App {
             if (!o)
                 this.select(null);
             else
-                this.ui.updateInspector(o);
+                this.ui.updateInspector(o, this.followSelected);
         }
         if (forceStats || timestamp - this._lastStatsPaint > 160) {
             this._lastStatsPaint = timestamp;
             this.ui.updateReadout(this.sim.stats);
+            this.ui.setTps(this._tps);
             this.charts.render();
             this.ui.updateEventLog(this.sim.stats);
+            this.updateExtinctionBanner();
         }
     }
+    updateExtinctionBanner() {
+        const banner = document.getElementById('extinction-banner');
+        if (banner)
+            banner.classList.toggle('hidden', !this.sim.extinct);
+    }
     loop(timestamp) {
+        if (this._tpsWindowStart === 0)
+            this._tpsWindowStart = timestamp;
         if (!this.paused && !this.sim.extinct) {
-            const steps = Math.max(1, this.config.sim.speed | 0);
+            // Accumulate fractional ticks so speeds below 1 run in slow motion and
+            // high speeds fast-forward — capped so extreme speeds can't freeze the tab.
+            this._stepAcc += this.config.sim.speed;
+            let steps = Math.floor(this._stepAcc);
+            this._stepAcc -= steps;
+            const cap = this.config.sim.maxStepsPerFrame;
+            if (steps > cap) {
+                steps = cap;
+                this._stepAcc = 0; // drop backlog rather than spiral
+            }
             for (let i = 0; i < steps; i++)
                 this.sim.step();
+            this._stepsThisSec += steps;
+        }
+        // Update the ticks-per-second meter once per second.
+        const elapsed = timestamp - this._tpsWindowStart;
+        if (elapsed >= 1000) {
+            this._tps = (this._stepsThisSec * 1000) / elapsed;
+            this._stepsThisSec = 0;
+            this._tpsWindowStart = timestamp;
         }
         this.renderFrame(timestamp);
         requestAnimationFrame(this.loop);

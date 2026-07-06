@@ -116,6 +116,19 @@ body {
   pointer-events: none;
 }
 
+/* Extinction banner (centred over the world). */
+#extinction-banner {
+  position: absolute;
+  left: 50%; top: 18px; transform: translateX(-50%);
+  background: rgba(230, 88, 77, 0.15);
+  border: 1px solid var(--danger);
+  color: #ff9b93;
+  padding: 8px 16px; border-radius: 8px;
+  font-weight: 600; font-size: 13px;
+  pointer-events: none;
+}
+#extinction-banner.hidden { display: none; }
+
 /* ---- Entity inspector (floating, top-right of the world) ---- */
 #inspector {
   position: absolute;

@@ -87,7 +87,7 @@ export class Organism {
     this.y = y;
     this.generation = generation;
     this.hue = hue;
-    this.energy = this.maxEnergyValue * 0.6;
+    this.energy = this.maxEnergyValue * config.physics.startEnergyFraction;
   }
 
   // ===========================================================================

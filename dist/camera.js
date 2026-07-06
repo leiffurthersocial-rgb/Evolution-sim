@@ -65,6 +65,11 @@ export class Camera {
         this.offsetY += dy;
         this.fitted = false;
     }
+    /** Centre the view on a world point at the current scale (for follow-cam). */
+    centerOn(worldX, worldY, viewW, viewH) {
+        this.offsetX = viewW / 2 - worldX * this.scale;
+        this.offsetY = viewH / 2 - worldY * this.scale;
+    }
     /** Current zoom as a percentage for the UI readout. */
     zoomPercent() {
         return Math.round(this.scale * 100);

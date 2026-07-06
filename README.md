@@ -70,10 +70,12 @@ console.log(sim.stats.toCSV());      // full time-series
   change propagate. Action buttons let you **Clone** (spawn a mutated copy),
   **Energy** (refill), or **Kill** it. The panel tracks the organism as it moves
   and closes if it dies. Press `Esc` or ✕ to deselect.
+  The inspector's **🎯 Follow** button locks the camera onto the organism so you
+  can track one individual through its life.
 - **Population tools:** spawn individuals (**Add 1** / **Add 10**) or **Cull 10%**
   from the left panel, to seed or perturb the population on demand.
 - **Keyboard:** `space` pause/resume, `n` single-step, `f` fit, `+`/`−` zoom,
-  `Esc` deselect.
+  `[` / `]` slower / faster, `Esc` deselect.
 
 ### Sexual selection & reproduction modes
 
@@ -117,17 +119,26 @@ phenotype**.
 diversity, mutation frequency by type, and life-history (lifespan & offspring).
 Export the entire history to **CSV** with one click.
 
-**Controls (all live):** pause / resume / single-step, simulation speed, random
-seed, population cap & initial size, food density / regen / energy, the full
-mutation-parameter set, and world dimensions / obstacles / safe zones.
+**Controls (all live):** pause / resume / single-step; a wide **simulation-speed**
+range from **0.1× slow-motion to 100× fast-forward** (with a live *Actual TPS*
+meter); random seed; population cap & initial size; food density / regen / energy;
+the full mutation-parameter set; sexual-selection parameters; **metabolism &
+physics** coefficients (base metabolism, base speed, move cost, eat rate,
+reproduction overhead, combat steal, starting energy); **timing** (stats interval,
+duplication/suppression duration); and world dimensions / obstacles / safe zones /
+terrain resolution / food cap. Obstacles and safe zones now default to **zero**
+for a clean open arena.
+
+**Display:** colour organisms by **lineage** (hue) or as a **heatmap of any trait
+or vital** (energy, age, or any of the 13 genes) to see structure at a glance.
 
 **Overlays:** terrain fertility, safe zones, vision radius, energy rings, age %,
 fitness estimate, generation, and mutation activity.
 
 **Organisms reflect their genes visually:** body radius = size, outline
-thickness = strength, heading-whisker length = speed, desaturated colour =
-camouflage, and body hue = genetic lineage (hues drift across generations so you
-can literally *see* clades diverge).
+thickness = strength, heading-whisker length = speed, ornament plume = display
+gene, desaturated colour = camouflage, and body hue = genetic lineage (hues drift
+across generations so you can literally *see* clades diverge).
 
 ---
 

@@ -49,7 +49,7 @@ export const DEFAULT_CONFIG = {
         width: 960,
         height: 640,
         obstacleCount: 0, // obstacles off by default (re-enable via the slider)
-        safeZoneCount: 2,
+        safeZoneCount: 0, // safe zones off by default (re-enable via the slider)
         terrainCells: 24,
         terrainEnabled: false, // fertile-soil variation off by default (uniform food)
     },
@@ -103,8 +103,11 @@ export const DEFAULT_CONFIG = {
     },
     // ---- Simulation loop ---------------------------------------------------
     sim: {
+        // Ticks executed per rendered frame. Fractional values < 1 run in slow
+        // motion (a tick every few frames, via an accumulator in main.ts); large
+        // values fast-forward. Chosen from SPEED_PRESETS in the UI.
         speed: 1,
-        maxSpeed: 20,
+        maxStepsPerFrame: 300, // hard cap so extreme speeds can't freeze the tab
         paused: false,
         statsInterval: 30,
     },
@@ -129,8 +132,15 @@ export const DEFAULT_CONFIG = {
         eatRateBase: 6,
         reproOverhead: 0.08,
         combatEnergyTransfer: 0.25,
+        startEnergyFraction: 0.6, // founders/newborns start with this fraction of maxEnergy
     },
 };
+/**
+ * Simulation-speed presets (ticks per rendered frame). Values below 1 run in
+ * slow motion via an accumulator; large values fast-forward. The UI exposes
+ * these as a single, evenly-spaced slider and the keyboard steps through them.
+ */
+export const SPEED_PRESETS = [0.1, 0.2, 0.25, 0.5, 1, 2, 3, 5, 8, 12, 20, 35, 50, 75, 100];
 /**
  * Phenotype archetypes. The classifier labels each organism by whichever
  * normalised trait most exceeds the neutral midpoint. Purely descriptive (for

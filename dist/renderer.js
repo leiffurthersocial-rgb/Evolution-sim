@@ -15,7 +15,8 @@
  * selected and hovered organisms get highlight rings.
  * -----------------------------------------------------------------------------
  */
-import { hslToCss } from './utils.js';
+import { hslToCss, clamp, norm } from './utils.js';
+import { GENES } from './config.js';
 export class Renderer {
     constructor(canvas, sim, camera) {
         this.canvas = canvas;
@@ -28,6 +29,8 @@ export class Renderer {
         /** Ids of the selected / hovered organisms (or null). */
         this.selectedId = null;
         this.hoveredId = null;
+        /** Body colouring mode (lineage hue, or a trait/vital heatmap). */
+        this.colorMode = 'lineage';
         this.overlays = {
             vision: false,
             energy: false,
@@ -200,7 +203,7 @@ export class Renderer {
         }
         ctx.beginPath();
         ctx.arc(o.x, o.y, r, 0, Math.PI * 2);
-        ctx.fillStyle = o.bodyColor();
+        ctx.fillStyle = this.bodyColorFor(o);
         ctx.fill();
         ctx.lineWidth = (0.5 + o.genome.expressed('strength') * 2.5) / this.camera.scale;
         ctx.strokeStyle = 'rgba(0,0,0,0.5)';
@@ -227,6 +230,24 @@ export class Renderer {
             ctx.lineWidth = 2 / this.camera.scale;
             ctx.stroke();
         }
+    }
+    /** Blue→red heatmap for a normalised value (0 = cool, 1 = hot). */
+    heat(t) {
+        return hslToCss((1 - clamp(t, 0, 1)) * 220, 0.85, 0.55);
+    }
+    /** Resolve an organism's body colour under the current colour mode. */
+    bodyColorFor(o) {
+        const m = this.colorMode;
+        if (m === 'lineage')
+            return o.bodyColor();
+        if (m === 'energy')
+            return this.heat(o.energyFraction());
+        if (m === 'age')
+            return this.heat(o.ageFraction());
+        const g = GENES[m];
+        if (g)
+            return this.heat(norm(o.genome.expressed(m), g.min, g.max));
+        return o.bodyColor();
     }
     drawHighlight(o, color, width) {
         const ctx = this.ctx;

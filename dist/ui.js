@@ -12,7 +12,7 @@
  * toggles, buttons, editable gene rows) are built explicitly.
  * -----------------------------------------------------------------------------
  */
-import { GENE_KEYS, GENES } from './config.js';
+import { GENE_KEYS, GENES, SPEED_PRESETS } from './config.js';
 import { PREFERENCE_KEYS } from './selection.js';
 import { clamp, norm } from './utils.js';
 const CONTROL_SPEC = [
@@ -39,11 +39,24 @@ const CONTROL_SPEC = [
     { path: 'mutation.pDuplication', label: 'P(duplication)', min: 0, max: 0.3, step: 0.01, rebuild: false },
     { path: 'mutation.pSuppression', label: 'P(suppression)', min: 0, max: 0.3, step: 0.01, rebuild: false },
     { path: 'mutation.pMacro', label: 'P(macro)', min: 0, max: 0.1, step: 0.001, rebuild: false },
+    { group: 'Metabolism & Physics' },
+    { path: 'physics.baseMetabolism', label: 'Base Metabolism', min: 0, max: 0.3, step: 0.005, rebuild: false },
+    { path: 'physics.baseSpeedPx', label: 'Base Speed (px)', min: 0.5, max: 8, step: 0.1, rebuild: false },
+    { path: 'physics.moveCostCoeff', label: 'Move Cost', min: 0, max: 0.1, step: 0.002, rebuild: false },
+    { path: 'physics.eatRateBase', label: 'Eat Rate', min: 1, max: 30, step: 0.5, rebuild: false },
+    { path: 'physics.reproOverhead', label: 'Repro Overhead', min: 0, max: 0.3, step: 0.005, rebuild: false },
+    { path: 'physics.combatEnergyTransfer', label: 'Combat Steal', min: 0, max: 0.6, step: 0.01, rebuild: false },
+    { path: 'physics.startEnergyFraction', label: 'Start Energy ×Max', min: 0.15, max: 1, step: 0.05, rebuild: false },
+    { group: 'Timing' },
+    { path: 'sim.statsInterval', label: 'Stats Interval', min: 5, max: 120, step: 5, rebuild: false },
+    { path: 'mutation.duplicationTicks', label: 'Dup/Suppress Ticks', min: 60, max: 2000, step: 20, rebuild: false },
     { group: 'Environment' },
     { path: 'world.width', label: 'World Width', min: 480, max: 2400, step: 20, rebuild: true },
     { path: 'world.height', label: 'World Height', min: 360, max: 1800, step: 20, rebuild: true },
     { path: 'world.obstacleCount', label: 'Obstacles', min: 0, max: 30, step: 1, rebuild: true },
     { path: 'world.safeZoneCount', label: 'Safe Zones', min: 0, max: 8, step: 1, rebuild: true },
+    { path: 'world.terrainCells', label: 'Terrain Resolution', min: 8, max: 48, step: 2, rebuild: true },
+    { path: 'food.maxItemsHardCap', label: 'Max Food Items', min: 200, max: 8000, step: 100, rebuild: false },
 ];
 const OVERLAY_SPEC = [
     { key: 'terrain', label: 'Terrain fertility' },
@@ -83,12 +96,33 @@ export class UI {
         this.buildEvolutionControls();
         this.buildPopulationTools();
         this.buildControls();
+        this.buildDisplayControls();
         this.buildOverlays();
         this.buildReadout();
         this.buildTraitReadout();
         this.buildInspector();
         this.wireToolbar();
         this.wireViewControls();
+    }
+    // ---- Display controls (colour-by) ---------------------------------------
+    buildDisplayControls() {
+        const c = document.getElementById('display-controls');
+        c.innerHTML = '';
+        const row = document.createElement('div');
+        row.className = 'control-row';
+        const geneOpts = GENE_KEYS.map((k) => `<option value="${k}">Trait: ${GENES[k].label}</option>`).join('');
+        row.innerHTML = `
+      <label><span>Colour organisms by</span></label>
+      <select id="ctl-colormode">
+        <option value="lineage">Lineage (hue)</option>
+        <option value="energy">Vital: Energy</option>
+        <option value="age">Vital: Age</option>
+        ${geneOpts}
+      </select>`;
+        c.appendChild(row);
+        const sel = row.querySelector('select');
+        sel.value = this.deps.renderer.colorMode;
+        sel.addEventListener('change', () => this.deps.onColorMode(sel.value));
     }
     // ---- Evolution controls (selects + toggles) -----------------------------
     buildEvolutionControls() {
@@ -203,7 +237,14 @@ export class UI {
                 `<div class="stat wide"><span class="k">Reproduction</span><span class="v" id="stat-mode">—</span></div>` +
                 `<div class="stat wide"><span class="k">Ornament Preference</span><span class="v" id="stat-ornpref">—</span></div>` +
                 `<div class="stat wide"><span class="k">Mutation Rate</span><span class="v" id="stat-mutrate">—</span></div>` +
-                `<div class="stat wide"><span class="k">Sim Speed</span><span class="v" id="stat-speed">—</span></div>`;
+                `<div class="stat"><span class="k">Sim Speed</span><span class="v" id="stat-speed">—</span></div>` +
+                `<div class="stat"><span class="k">Actual TPS</span><span class="v" id="stat-tps">—</span></div>`;
+    }
+    /** Update the live ticks-per-second meter. */
+    setTps(tps) {
+        const el = document.getElementById('stat-tps');
+        if (el)
+            el.textContent = tps >= 100 ? Math.round(tps).toString() : tps.toFixed(1);
     }
     buildTraitReadout() {
         const container = document.getElementById('trait-readout');
@@ -227,7 +268,7 @@ export class UI {
      * organism changes, so dragging a gene slider isn't interrupted each frame;
      * the live values (energy/age/derived/expressed) refresh every frame.
      */
-    updateInspector(o) {
+    updateInspector(o, following = false) {
         const el = document.getElementById('inspector');
         if (!o) {
             el.classList.add('hidden');
@@ -242,6 +283,12 @@ export class UI {
             this.rebuildInspectorStructure(o);
         }
         this.refreshInspectorValues(o);
+        // Reflect follow state on the button.
+        const followBtn = document.getElementById('insp-follow');
+        if (followBtn) {
+            followBtn.classList.toggle('primary', following);
+            followBtn.textContent = following ? '🎯 Following' : '🎯 Follow';
+        }
     }
     rebuildInspectorStructure(o) {
         const el = document.getElementById('inspector');
@@ -249,9 +296,16 @@ export class UI {
         // Action buttons.
         const actions = el.querySelector('#inspector-actions');
         actions.innerHTML = `
+      <button id="insp-follow" title="Keep the camera centred on this organism">🎯 Follow</button>
       <button id="insp-clone" title="Spawn a mutated copy nearby">⎘ Clone</button>
       <button id="insp-boost" title="Refill energy">⚡ Energy</button>
       <button id="insp-kill" title="Remove this organism">☠ Kill</button>`;
+        actions.querySelector('#insp-follow').addEventListener('click', () => {
+            const following = this.deps.onToggleFollow();
+            const btn = document.getElementById('insp-follow');
+            btn.classList.toggle('primary', following);
+            btn.textContent = following ? '🎯 Following' : '🎯 Follow';
+        });
         actions.querySelector('#insp-clone').addEventListener('click', () => this.deps.onCloneSelected());
         actions.querySelector('#insp-boost').addEventListener('click', () => this.deps.onBoostSelected());
         actions.querySelector('#insp-kill').addEventListener('click', () => this.deps.onKillSelected());
@@ -321,11 +375,18 @@ export class UI {
         document.getElementById('btn-step').addEventListener('click', () => this.deps.onStep());
         document.getElementById('btn-reset').addEventListener('click', () => this.deps.onReset());
         document.getElementById('btn-export').addEventListener('click', () => this.deps.onExport());
+        // Speed slider indexes into SPEED_PRESETS so it spans deep slow-motion
+        // (0.1×) up to heavy fast-forward (100×) with even, intuitive stops.
         const speed = document.getElementById('speed');
-        const speedVal = document.getElementById('speed-value');
+        speed.min = '0';
+        speed.max = String(SPEED_PRESETS.length - 1);
+        speed.step = '1';
+        speed.value = String(this.nearestSpeedIndex(this.config.sim.speed));
+        this.updateSpeedLabel();
         speed.addEventListener('input', () => {
-            this.config.sim.speed = parseInt(speed.value, 10);
-            speedVal.textContent = `${speed.value}×`;
+            const i = parseInt(speed.value, 10);
+            this.deps.onSpeedIndex(i);
+            this.updateSpeedLabel();
         });
         const seed = document.getElementById('seed-input');
         seed.value = String(this.config.seed);
@@ -338,6 +399,34 @@ export class UI {
         document.getElementById('btn-fit').addEventListener('click', () => this.deps.onFit());
         document.getElementById('btn-zoom-in').addEventListener('click', () => this.deps.onZoom(1.25));
         document.getElementById('btn-zoom-out').addEventListener('click', () => this.deps.onZoom(1 / 1.25));
+    }
+    /** Index of the preset nearest to a speed value. */
+    nearestSpeedIndex(speed) {
+        let best = 0;
+        let bestD = Infinity;
+        SPEED_PRESETS.forEach((v, i) => {
+            const d = Math.abs(v - speed);
+            if (d < bestD) {
+                bestD = d;
+                best = i;
+            }
+        });
+        return best;
+    }
+    formatSpeed(v) {
+        return v < 1 ? `${v}×` : `${v}×`;
+    }
+    updateSpeedLabel() {
+        const el = document.getElementById('speed-value');
+        if (el)
+            el.textContent = this.formatSpeed(this.config.sim.speed);
+    }
+    /** Move the speed slider + label to a preset index (used by keyboard). */
+    syncSpeed(index) {
+        const speed = document.getElementById('speed');
+        if (speed)
+            speed.value = String(index);
+        this.updateSpeedLabel();
     }
     // ---- Per-frame updates --------------------------------------------------
     updateReadout(stats) {
